@@ -299,13 +299,15 @@ Math.Pow(b - centroidB, 2)
     {
         static void Main(string[] args)
         {
-            ImageSegmentation problem = new ImageSegmentation();
-            problem.LoadImageFromFile("mug.bmp");
-            problem.KMeansClustering(2, 100);
-            problem.SavePixClusterToFile("outputmug.bmp");
-            //problem.LoadImageFromFile("cockatiel.bmp");
-            //problem.KMeansClustering(3, 10);
-            //problem.SavePixClusterToFile("outputcockatiel.bmp");
-        }
+            ImageSegmentation problemCockatiel = new ImageSegmentation();
+            problemCockatiel.LoadImageFromFile("cockatiel.bmp");
+            problemCockatiel.KMeansClustering(3, 10);
+            problemCockatiel.SavePixClusterToFile("outputcockatiel.bmp");
+
+            ImageSegmentation problemMug = new ImageSegmentation();
+            problemMug.LoadImageFromFile("mug.bmp");
+            problemMug.KMeansClustering(2, 2);
+            problemMug.SavePixClusterToFile("outputmug.bmp");
+        }
     }
 }
