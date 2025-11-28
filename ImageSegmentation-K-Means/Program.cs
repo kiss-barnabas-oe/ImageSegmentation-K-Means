@@ -1,7 +1,8 @@
 ﻿using System;
-using System.IO;
-using System.Drawing;
 using System.Collections.Generic;
+using System.Drawing;
+using System.IO;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 namespace ImageSegmentation_K_Means
 {
     public class ImageSegmentation
@@ -13,7 +14,12 @@ namespace ImageSegmentation_K_Means
         private List<int> pixCluster; // Klaszterek
         private byte[] fileHeader; // A fájl fejlécét tároljuk itt
         private int[] gsHistogram; // Szürkeárnyalatos histogram
-        public ImageSegmentation()
+
+        private int bitsPerPixel;
+        private int bytesPerPixel;
+        private int stride;
+
+        public ImageSegmentation()
         {
             fileHeader = new byte[54]; // BMP fájl fejléc
             gsHistogram = new int[256]; // A szürkeárnyalatos histogram
@@ -31,115 +37,104 @@ namespace ImageSegmentation_K_Means
         {
             using (FileStream fs = new FileStream(filename, FileMode.Open, FileAccess.Read))
             {
-                // Olvassuk a BMP fejlécet
-                fs.Seek(18, SeekOrigin.Begin);
-                width = ReadInt(fs); // A képméret (szélesség)
-                height = ReadInt(fs); // A képméret (magasság)
-                // Színek tárolása (RGB)
-                rawColor = new byte[width * height * 3]; // 3 byte színadatok / pixel (RGB)
-                fs.Seek(54, SeekOrigin.Begin); // A színadatok kezdete
-                fs.Read(rawColor, 0, rawColor.Length);
+                fs.Read(fileHeader, 0, 54);
+
+                width = BitConverter.ToInt32(fileHeader, 18);
+                height = BitConverter.ToInt32(fileHeader, 22);
+                bitsPerPixel = BitConverter.ToInt16(fileHeader, 28);
+                int offset = BitConverter.ToInt32(fileHeader, 10);
+
+                bytesPerPixel = bitsPerPixel / 8;           // 3 vagy 4
+                stride = (width * bytesPerPixel + 3) & ~3;   // 4 byte-ra igazítva
+
+                // Teljes képadat beolvasása (paddinggel együtt)
+                fs.Seek(offset, SeekOrigin.Begin);
+                byte[] bmpData = new byte[stride * height];
+                fs.Read(bmpData, 0, bmpData.Length);
+
+                // Átalakítjuk BGR/BGRA → RGB tömbbe (felülről lefelé sorrendben)
+                rawColor = new byte[width * height * 3];
                 rawGrayscale = new byte[width * height];
-                for (int i = 0; i < width * height; i++)
+                pixCluster.Clear();
+
+                for (int y = 0; y < height; y++)
                 {
-                    // Szürkeárnyalatos érték számítása
-                    rawGrayscale[i] = (byte)((rawColor[i * 3] + rawColor[i * 3 + 1] + rawColor[i * 3 + 2]) / 3);
+                    int srcRow = y * stride;
+                    for (int x = 0; x < width; x++)
+                    {
+                        int src = srcRow + x * bytesPerPixel;
+                        int dst = (y * width + x) * 3;
+
+                        byte b = bmpData[src];
+                        byte g = bmpData[src + 1];
+                        byte r = bmpData[src + 2];
+
+                        rawColor[dst] = r;
+                        rawColor[dst + 1] = g;
+                        rawColor[dst + 2] = b;
+
+                        rawGrayscale[y * width + x] = (byte)((r + g + b) / 3);
+                        pixCluster.Add(0);
+                    }
                 }
-                // Fejléc másolása (ha szükséges)
-                fs.Seek(0, SeekOrigin.Begin);
-                fs.Read(fileHeader, 0, 54); // Fejléc 54 byte másolása
-                // Histogram létrehozása
-                Array.Clear(gsHistogram, 0, gsHistogram.Length);
-                for (int i = 0; i < width * height; i++)
-                {
-                    gsHistogram[rawGrayscale[i]]++;
-                }
-                // Klaszterek inicializálása
-                for (int i = 0; i < width * height; i++)
-                {
-                    pixCluster.Add(0); // Kezdetben mindegyik pixelhez 0 klaszter tartozik
-                }
+
+                // Histogram
+                Array.Clear(gsHistogram, 0, 256);
+                foreach (byte v in rawGrayscale) gsHistogram[v]++;
             }
         }
 
         public void SavePixClusterToFile(string filename)
         {
-            // BMP fájl fejlécének előkészítése
-            byte[] header = new byte[54];
-            // "BM" fájl típus
-            header[0] = (byte)'B';
-            header[1] = (byte)'M';
-            // Fájl mérete (54 byte fejléc + pixel adatok)
-            int fileSize = 54 + (width * height * 3) + ((width * 3) % 4 == 0 ? 0 : (4 - (width * 3) % 4)); // padding
-            header[2] = (byte)(fileSize & 0xFF);
-            header[3] = (byte)((fileSize >> 8) & 0xFF);
-            header[4] = (byte)((fileSize >> 16) & 0xFF);
-            header[5] = (byte)((fileSize >> 24) & 0xFF);
-            // Kép kezdő pozíciója a fájlban
-            header[10] = 54; // 54 byte után kezdődik a képadat
-            // Header size (40 byte)
-            header[14] = 40;
-            // Szélesség és magasság
-            header[18] = (byte)(width & 0xFF);
-            header[19] = (byte)((width >> 8) & 0xFF);
-            header[20] = (byte)((width >> 16) & 0xFF);
-            header[21] = (byte)((width >> 24) & 0xFF);
-            header[22] = (byte)(height & 0xFF);
-            header[23] = (byte)((height >> 8) & 0xFF);
-            header[24] = (byte)((height >> 16) & 0xFF);
-            header[25] = (byte)((height >> 24) & 0xFF);
-            // Színmélység (24 bit = 3 byte per pixel)
-            header[28] = 24;
-            // BMP fájlba írása
-            using (FileStream fs = new FileStream(filename, FileMode.Create, FileAccess.Write))
+            int padding = (4 - (width * 3) % 4) % 4;
+            byte[] padBytes = new byte[padding];
+
+            using (FileStream fs = new FileStream(filename, FileMode.Create))
             {
-                // 1. Fejléc írása
-                fs.Write(header, 0, 54);
-                int padding = (4 - (width * 3) % 4) % 4; // Padding kiszámítása, hogy 4 byte-os sorokat kapjunk
-                byte[] paddingBytes = new byte[padding]; // Padding byte-ok
-                // 2. Kép pixelek írása
-                for (int y = height - 1; y >= 0; y--) // BMP fájlokban az Y tengelyt fordítva kell írni (fordított sorrend)
-                {
+                // 24-bit BMP fejléc (mindig 24-bitként mentünk)
+                fs.WriteByte((byte)'B'); fs.WriteByte((byte)'M');
+                int fileSize = 54 + (width * 3 + padding) * height;
+                fs.Write(BitConverter.GetBytes(fileSize), 0, 4);
+                fs.Write(BitConverter.GetBytes(0), 0, 4);
+                fs.Write(BitConverter.GetBytes(54), 0, 4);
+                fs.Write(BitConverter.GetBytes(40), 0, 4);
+                fs.Write(BitConverter.GetBytes(width), 0, 4);
+                fs.Write(BitConverter.GetBytes(height), 0, 4);
+                fs.Write(BitConverter.GetBytes((short)1), 0, 2);
+                fs.Write(BitConverter.GetBytes((short)24), 0, 2);
+                fs.Write(BitConverter.GetBytes(0), 0, 4);
+                fs.Write(BitConverter.GetBytes(0), 0, 4);
+                fs.Write(BitConverter.GetBytes(0), 0, 4);
+                fs.Write(BitConverter.GetBytes(0), 0, 4);
+                fs.Write(BitConverter.GetBytes(0), 0, 4);
+                fs.Write(BitConverter.GetBytes(0), 0, 4);
+
+                // Színek (élénk, jól látható)
+                byte[][] colors = new byte[][]
+                {
+                    new byte[] {200,  70,  70},  // mélyvörös
+                    new byte[] { 70, 100, 160},  // szép kékesszürke
+                    new byte[] {220, 180, 140},  // meleg bézs
+                    new byte[] { 80, 140, 100},  // visszafogott zöld
+                    new byte[] {150, 110, 150}   // halvány lila
+                };
+
+                // BMP-ben alulról felfelé írunk
+                for (int y = 0; y <height; y++)
+                {
                     for (int x = 0; x < width; x++)
                     {
-                        byte[] data = new byte[3];
-                        // Klaszterekhez tartozó színek hozzárendelése
-                        switch (pixCluster[y * width + x])
-                        {
-                            case 0:
-                                data[0] = 100; // Kék
-                                data[1] = 100; // Zöld
-                                data[2] = 255; // Piros
-                                break;
-                            case 1:
-                                data[0] = 100; // Kék
-                                data[1] = 255; // Zöld
-                                data[2] = 100; // Piros
-                                break;
-                            case 2:
-                                data[0] = 255; // Kék
-                                data[1] = 100; // Zöld
-                                data[2] = 100; // Piros
-                                break;
-                            case 3:
-                                data[0] = 255; // Kék
-                                data[1] = 255; // Zöld
-                                data[2] = 100; // Piros
-                                break;
-                            case 4:
-                                data[0] = 255; // Kék
-                                data[1] = 100; // Zöld
-                                data[2] = 255; // Piros
-                                break;
-                        }
-                        // BGR színadatok írása
-                        fs.Write(data, 0, 3);
+                        int c = pixCluster[y * width + x];
+                        var col = colors[c % colors.Length];
+                        fs.WriteByte(col[2]); // B
+                        fs.WriteByte(col[1]); // G
+                        fs.WriteByte(col[0]); // R
                     }
-                    // Padding byte-ok írása
-                    fs.Write(paddingBytes, 0, padding);
+                    fs.Write(padBytes, 0, padding);
                 }
             }
         }
+
         private int ReadInt(FileStream fs)
         {
             byte[] buffer = new byte[4];
@@ -299,15 +294,17 @@ Math.Pow(b - centroidB, 2)
     {
         static void Main(string[] args)
         {
-            ImageSegmentation problemCockatiel = new ImageSegmentation();
-            problemCockatiel.LoadImageFromFile("cockatiel.bmp");
-            problemCockatiel.KMeansClustering(3, 10);
-            problemCockatiel.SavePixClusterToFile("outputcockatiel.bmp");
-
             ImageSegmentation problemMug = new ImageSegmentation();
             problemMug.LoadImageFromFile("mug.bmp");
-            problemMug.KMeansClustering(2, 2);
+            problemMug.KMeansClustering(2, 100);
             problemMug.SavePixClusterToFile("outputmug.bmp");
+
+            Console.WriteLine("\n\n\n");
+
+            ImageSegmentation problemCockatiel = new ImageSegmentation();
+            problemCockatiel.LoadImageFromFile("cockatiel.bmp");
+            problemCockatiel.KMeansClustering(3, 100);
+            problemCockatiel.SavePixClusterToFile("outputcockatiel.bmp");
         }
     }
 }
