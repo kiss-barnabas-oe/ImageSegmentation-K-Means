@@ -44,15 +44,15 @@ namespace ImageSegmentation_K_Means
                 bitsPerPixel = BitConverter.ToInt16(fileHeader, 28);
                 int offset = BitConverter.ToInt32(fileHeader, 10);
 
-                bytesPerPixel = bitsPerPixel / 8;           // 3 vagy 4
-                stride = (width * bytesPerPixel + 3) & ~3;   // 4 byte-ra igazítva
+                bytesPerPixel = bitsPerPixel / 8;          
+                stride = (width * bytesPerPixel + 3) & ~3;   
 
-                // Teljes képadat beolvasása (paddinggel együtt)
+                
                 fs.Seek(offset, SeekOrigin.Begin);
                 byte[] bmpData = new byte[stride * height];
                 fs.Read(bmpData, 0, bmpData.Length);
 
-                // Átalakítjuk BGR/BGRA → RGB tömbbe (felülről lefelé sorrendben)
+                
                 rawColor = new byte[width * height * 3];
                 rawGrayscale = new byte[width * height];
                 pixCluster.Clear();
@@ -78,7 +78,7 @@ namespace ImageSegmentation_K_Means
                     }
                 }
 
-                // Histogram
+                
                 Array.Clear(gsHistogram, 0, 256);
                 foreach (byte v in rawGrayscale) gsHistogram[v]++;
             }
@@ -91,7 +91,7 @@ namespace ImageSegmentation_K_Means
 
             using (FileStream fs = new FileStream(filename, FileMode.Create))
             {
-                // 24-bit BMP fejléc (mindig 24-bitként mentünk)
+                
                 fs.WriteByte((byte)'B'); fs.WriteByte((byte)'M');
                 int fileSize = 54 + (width * 3 + padding) * height;
                 fs.Write(BitConverter.GetBytes(fileSize), 0, 4);
@@ -109,7 +109,7 @@ namespace ImageSegmentation_K_Means
                 fs.Write(BitConverter.GetBytes(0), 0, 4);
                 fs.Write(BitConverter.GetBytes(0), 0, 4);
 
-                // Színek (élénk, jól látható)
+                
                 byte[][] colors = new byte[][]
                 {
                     new byte[] {200,  70,  70},  // mélyvörös
@@ -119,7 +119,7 @@ namespace ImageSegmentation_K_Means
                     new byte[] {150, 110, 150}   // halvány lila
                 };
 
-                // BMP-ben alulról felfelé írunk
+                
                 for (int y = 0; y <height; y++)
                 {
                     for (int x = 0; x < width; x++)
@@ -134,13 +134,7 @@ namespace ImageSegmentation_K_Means
                 }
             }
         }
-
-        private int ReadInt(FileStream fs)
-        {
-            byte[] buffer = new byte[4];
-            fs.Read(buffer, 0, 4);
-            return BitConverter.ToInt32(buffer, 0);
-        }
+        
         private byte[][] InitializeCentroids(int k)
         {
             Random rand = new Random();
@@ -160,30 +154,7 @@ namespace ImageSegmentation_K_Means
         {
             // Luminance (fényerősség) számítása
             return (int)(0.2989 * r + 0.5870 * g + 0.1140 * b);
-        }
-        private int CalculateDistance(int r, int g, int b, byte[][] centroids)
-        {
-            int minDistance = int.MaxValue;
-            int closestCentroid = 0;
-            for (int i = 0; i < centroids.Length; i++)
-            {
-                int centroidR = centroids[i][0];
-                int centroidG = centroids[i][1];
-                int centroidB = centroids[i][2];
-                // Euclidean távolság számítása
-                int distance = (int)Math.Sqrt(
-Math.Pow(r - centroidR, 2) +
-Math.Pow(g - centroidG, 2) +
-Math.Pow(b - centroidB, 2)
-);
-                if (distance < minDistance)
-                {
-                    minDistance = distance;
-                    closestCentroid = i;
-                }
-            }
-            return closestCentroid;
-        }
+        }        
         private void AssignClusters(byte[][] centroids)
         {
             List<int>[] clusters = new List<int>[centroids.Length];
@@ -279,7 +250,7 @@ Math.Pow(b - centroidB, 2)
                 AssignClusters(centroids);
                 // Centroidok frissítése
                 converged = UpdateCentroids(centroids);
-                // Itt írjuk ki a centroidokat minden iteráció után
+                
                 Console.WriteLine($"--- Iteration {iteration} ---");
                 for (int i = 0; i < centroids.Length; i++)
                 {
