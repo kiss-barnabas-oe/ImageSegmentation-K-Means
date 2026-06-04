@@ -276,6 +276,13 @@ namespace ImageSegmentation_K_Means
             problemCockatiel.LoadImageFromFile("cockatiel.bmp");
             problemCockatiel.KMeansClustering(3, 100);
             problemCockatiel.SavePixClusterToFile("outputcockatiel.bmp");
+
+            Console.WriteLine("\n\n\n");
+
+            ImageSegmentation problemCockatiel2 = new ImageSegmentation();
+            problemCockatiel.LoadImageFromFile("cock2.bmp");
+            problemCockatiel.KMeansClustering(5, 100);
+            problemCockatiel.SavePixClusterToFile("outputcock2.bmp");
         }
     }
 }
